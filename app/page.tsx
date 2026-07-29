@@ -11,7 +11,7 @@ export default function Chat() {
 
   // 2. v5 API: no more `append` or `isLoading`.
   //    Use `sendMessage` and `status` instead.
-  const { messages, sendMessage, status, stop } = useChat();
+  const { messages, sendMessage, status, stop, setMessages } = useChat();
 
   const isLoading = status === 'submitted' || status === 'streaming';
 
@@ -60,7 +60,60 @@ export default function Chat() {
     }
   }, [messages, isPinned]);
 
-  // 3. This function runs when you click the Send button
+  // --- Persistence (localStorage) ---
+  // Client-only, per-browser storage — a refresh mid-conversation isn't a
+  // data-loss event, but this doesn't sync across devices/browsers (that
+  // would need a real backend + some notion of a user/session).
+  const CHAT_STORAGE_KEY = 'ai-chat-messages';
+
+  // Guards against a race: on mount, the "load" effect below calls
+  // setMessages(...) to hydrate from storage, but that state update
+  // doesn't apply synchronously. If the "save" effect (which runs on every
+  // `messages` change) fired on its very first pass, it would see the
+  // original empty `messages` array and immediately overwrite the saved
+  // chat with `[]` — before the load's update ever lands. Skipping exactly
+  // the first save avoids this without depending on effect timing.
+  const isFirstSaveRef = useRef(true);
+
+  // Load once, on mount.
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem(CHAT_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to load saved chat:', err);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Save on every change to messages (new turns, streamed updates, etc.)
+  useEffect(() => {
+    if (isFirstSaveRef.current) {
+      isFirstSaveRef.current = false;
+      return;
+    }
+    try {
+      localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(messages));
+    } catch (err) {
+      console.error('Failed to save chat:', err);
+    }
+  }, [messages]);
+
+  const handleClearChat = () => {
+    setMessages([]);
+    try {
+      localStorage.removeItem(CHAT_STORAGE_KEY);
+    } catch (err) {
+      console.error('Failed to clear saved chat:', err);
+    }
+  };
+
+  // This function runs when you click the Send button
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -132,11 +185,21 @@ export default function Chat() {
         <h1 className="text-xl font-bold flex items-center gap-2 text-blue-600">
           <Bot size={24} /> AI Assistant
         </h1>
-        {isLoading && (
-          <span className="text-xs text-blue-500 animate-pulse font-bold uppercase">
-            Streaming...
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {isLoading && (
+            <span className="text-xs text-blue-500 animate-pulse font-bold uppercase">
+              Streaming...
+            </span>
+          )}
+          {messages.length > 0 && (
+            <button
+              onClick={handleClearChat}
+              className="text-xs text-slate-400 hover:text-slate-600 underline underline-offset-2"
+            >
+              Clear chat
+            </button>
+          )}
+        </div>
       </header>
 
       {/* Chat History (wrapped so the jump-to-latest button can float above it,
