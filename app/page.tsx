@@ -89,6 +89,42 @@ export default function Chat() {
       .map((p) => ('text' in p ? p.text : ''))
       .join('') ?? '';
 
+  // --- Streaming-safe Markdown ---
+  // While a response is mid-stream, the text is *incomplete Markdown* by
+  // definition — a code fence or inline-code backtick may have opened but
+  // not yet closed. Feeding that straight to ReactMarkdown causes visible
+  // flicker/breakage for the one render before the closing token arrives
+  // (backticks show as literal text, or everything after gets swallowed
+  // into a phantom code block).
+  //
+  // Fix: patch the string so it's always syntactically *balanced* before
+  // rendering. If a construct is still open, temporarily close it. The
+  // very next chunk replaces this patched string anyway, so nothing is
+  // lost — we're just never handing the parser invalid Markdown.
+  const sanitizeStreamingMarkdown = (md: string): string => {
+    let result = md;
+
+    // 1. Balance triple-backtick code fences (```). An odd count means
+    //    the last fence is still open — close it so the block renders
+    //    as a code block instead of leaking into whatever comes after.
+    const fenceCount = (result.match(/```/g) || []).length;
+    if (fenceCount % 2 !== 0) {
+      result += '\n```';
+    }
+
+    // 2. Balance single backticks for inline code (`like this`), but only
+    //    count backticks *outside* fenced code blocks (those are already
+    //    balanced by step 1, and backticks inside them aren't inline-code
+    //    delimiters).
+    const withoutFences = result.replace(/```[\s\S]*?```/g, '');
+    const singleBacktickCount = (withoutFences.match(/`/g) || []).length;
+    if (singleBacktickCount % 2 !== 0) {
+      result += '`';
+    }
+
+    return result;
+  };
+
   return (
     <div className="flex flex-col h-screen max-w-2xl mx-auto p-4 bg-white text-black font-sans border-x">
       {/* Header */}
@@ -126,7 +162,7 @@ export default function Chat() {
                 }`}
               >
                 <div className="text-sm leading-relaxed prose prose-slate">
-                  <ReactMarkdown>{getMessageText(m)}</ReactMarkdown>
+                  <ReactMarkdown>{sanitizeStreamingMarkdown(getMessageText(m))}</ReactMarkdown>
                 </div>
               </div>
             </div>
