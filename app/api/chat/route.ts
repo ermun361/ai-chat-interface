@@ -1,5 +1,9 @@
-import { google } from '@ai-sdk/google';
 import { streamText, convertToModelMessages, UIMessage } from 'ai';
+import { CHAT_MODEL, SYSTEM_PROMPT } from '@/lib/ai/config';
+
+// The Gemini API key is read server-side only, from process.env
+// (GOOGLE_GENERATIVE_AI_API_KEY in .env.local). It is never sent to the
+// client — the browser only ever talks to this route, never to Google directly.
 
 export async function POST(req: Request) {
   try {
@@ -8,14 +12,14 @@ export async function POST(req: Request) {
     const modelMessages = await convertToModelMessages(messages);
 
     const result = streamText({
-      model: google('gemini-3.5-flash-lite'),
+      model: CHAT_MODEL,
+      system: SYSTEM_PROMPT,
       messages: modelMessages,
     });
 
-    // v5: use toUIMessageStreamResponse (toDataStreamResponse is the old v4 API)
+    // Streams back in the UIMessage/parts format the v5 useChat client expects.
     return result.toUIMessageStreamResponse();
   } catch (error) {
-    // This will print the real error in your terminal window
     console.error('AI_ERROR:', error);
     return new Response(JSON.stringify({ error: 'Check terminal' }), { status: 500 });
   }
